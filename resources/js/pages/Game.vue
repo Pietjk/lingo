@@ -5,6 +5,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue';
 import Board from '@/components/Board.vue';
 import Keyboard from '@/components/Keyboard.vue';
 import MatchResult from '@/components/MatchResult.vue';
+import Toast from '@/components/Toast.vue';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { formatClock, useCountdown } from '@/lib/useCountdown';
 import {
@@ -54,6 +55,9 @@ const current = ref('');
 const finished = ref(props.finished);
 const result = ref<RoundResult | null>(null);
 const message = ref<string | null>(null);
+const toastMessage = ref<string | null>(null);
+const shakeActiveRow = ref(false);
+let shakeTimeout: ReturnType<typeof setTimeout> | null = null;
 const scores = ref<Record<string, number>>({ ...props.scores });
 const matchOver = ref(props.matchOver);
 const forfeited = computed(
@@ -65,6 +69,23 @@ const roundTimer = useCountdown();
 const forfeitTimer = useCountdown();
 
 const http = useHttp({ guess: '' });
+
+function showToast(msg: string) {
+    toastMessage.value = msg;
+}
+
+function triggerShake() {
+    shakeActiveRow.value = false;
+    if (shakeTimeout) {
+        clearTimeout(shakeTimeout);
+    }
+    requestAnimationFrame(() => {
+        shakeActiveRow.value = true;
+        shakeTimeout = setTimeout(() => {
+            shakeActiveRow.value = false;
+        }, 600);
+    });
+}
 
 const matchWinner = computed(() => {
     if (result.value?.matchOver) {
@@ -129,7 +150,10 @@ async function submitGuess() {
             solvedPoints.value = response.points;
         }
     } catch {
-        message.value = http.errors.guess ?? 'Er ging iets mis.';
+        triggerShake();
+        const errorMsg = http.errors.guess ?? 'Er ging iets mis.';
+        message.value = errorMsg;
+        showToast(errorMsg);
     }
 }
 
@@ -142,7 +166,10 @@ function handleKey(key: string) {
         if (current.value.length === WORD_LENGTH) {
             void submitGuess();
         } else {
-            message.value = 'Vul 5 letters in.';
+            triggerShake();
+            const errorMsg = 'Vul 5 letters in.';
+            message.value = errorMsg;
+            showToast(errorMsg);
         }
     } else if (key === 'Backspace') {
         current.value = current.value.slice(0, -1);
@@ -164,7 +191,12 @@ function onKeydown(event: KeyboardEvent) {
 }
 
 onMounted(() => window.addEventListener('keydown', onKeydown));
-onUnmounted(() => window.removeEventListener('keydown', onKeydown));
+onUnmounted(() => {
+    window.removeEventListener('keydown', onKeydown);
+    if (shakeTimeout) {
+        clearTimeout(shakeTimeout);
+    }
+});
 
 useEchoPresence(
     `room.${props.code}`,
@@ -203,6 +235,8 @@ useEchoPresence(
         opponentRows.value = [];
         current.value = '';
         message.value = null;
+        toastMessage.value = null;
+        shakeActiveRow.value = false;
         result.value = null;
         finished.value = false;
         matchOver.value = false;
@@ -295,31 +329,59 @@ const outOfGuesses = computed(
 <template>
     <Head title="Spel" />
 
-    <div class="flex flex-1 flex-col items-center gap-6">
-        <p class="text-sm text-[#706f6c]">
-            Kamer {{ code }} · Ronde {{ round }} van {{ totalRounds }}
-        </p>
+    <div class="flex flex-1 flex-col items-center gap-4 sm:gap-6 w-full">
+        <Toast
+            v-if="toastMessage"
+            :message="toastMessage"
+            @close="toastMessage = null"
+        />
 
-        <p
-            v-if="roundTimer.running.value"
-            class="font-mono text-lg tabular-nums"
-            aria-label="Resterende tijd"
-        >
-            {{ formatClock(roundTimer.seconds.value) }}
-        </p>
-
-        <p class="text-sm">
-            <template v-for="(score, name) in scores" :key="name">
-                <span class="mr-3"
-                    >{{ name }}: <strong>{{ score }}</strong></span
+        <!-- Game HUD bar -->
+        <div class="flex w-full flex-col items-center gap-2.5">
+            <div class="flex flex-wrap items-center justify-center gap-2 sm:gap-3 text-xs sm:text-sm">
+                <span
+                    class="rounded-full border border-blue-500/30 bg-[#061439]/80 px-3.5 py-1 font-semibold text-blue-200 shadow-inner"
                 >
-            </template>
-        </p>
+                    Kamer <strong class="font-mono uppercase tracking-wider text-yellow-400">{{ code }}</strong>
+                </span>
+                <span
+                    class="rounded-full border border-blue-500/30 bg-[#061439]/80 px-3.5 py-1 font-semibold text-blue-200 shadow-inner"
+                >
+                    Ronde <strong class="text-white">{{ round }}</strong> van {{ totalRounds }}
+                </span>
+            </div>
+
+            <div
+                v-if="roundTimer.running.value"
+                class="flex items-center gap-2 rounded-2xl border border-yellow-400/30 bg-[#061439]/90 px-4 py-1 shadow-[0_0_20px_rgba(250,204,21,0.15)] backdrop-blur-sm sm:px-5"
+                aria-label="Resterende tijd"
+            >
+                <span class="size-2 rounded-full bg-red-500 animate-ping" />
+                <span
+                    class="font-mono text-xl sm:text-2xl font-black tracking-wider text-yellow-400 tabular-nums drop-shadow-[0_0_10px_rgba(250,204,21,0.5)]"
+                >
+                    {{ formatClock(roundTimer.seconds.value) }}
+                </span>
+            </div>
+
+            <div class="flex flex-wrap items-center justify-center gap-2 sm:gap-3">
+                <div
+                    v-for="(score, name) in scores"
+                    :key="name"
+                    class="flex items-center gap-2 rounded-xl border border-blue-500/30 bg-[#061439]/70 px-3 py-1 text-xs sm:text-sm shadow-sm"
+                >
+                    <span :class="name === me ? 'font-bold text-yellow-400' : 'font-semibold text-blue-100'">
+                        {{ name }}{{ name === me ? ' (jij)' : '' }}:
+                    </span>
+                    <strong class="font-mono font-bold text-white">{{ score }}</strong>
+                </div>
+            </div>
+        </div>
 
         <div
             v-if="forfeitTimer.running.value"
             role="alert"
-            class="rounded-lg border border-amber-500 bg-amber-50 px-4 py-3 text-center text-sm text-amber-900"
+            class="rounded-xl border-2 border-amber-400 bg-amber-950/80 px-4 py-3 text-center text-xs sm:text-sm text-amber-200 shadow-xl backdrop-blur-md"
         >
             {{ opponent ?? 'De tegenstander' }} heeft de verbinding verbroken.
             Komt niet terug? Dan win jij met forfait over
@@ -336,69 +398,76 @@ const outOfGuesses = computed(
             @rematch="playAgain"
         />
 
-        <div v-else class="flex w-full flex-col items-center gap-6">
+        <div v-else class="flex w-full flex-col items-center gap-4 sm:gap-6">
             <div
-                class="flex w-full flex-col items-center gap-6 md:flex-row md:items-start md:justify-center"
+                class="flex w-full flex-col items-center gap-4 sm:gap-6 md:flex-row md:items-start md:justify-center"
             >
                 <section
-                    class="order-2 space-y-2 md:order-1"
+                    class="order-2 flex flex-col items-center gap-2 rounded-2xl border border-blue-500/30 bg-[#071948]/60 p-3 sm:p-4 shadow-xl backdrop-blur-sm md:order-1"
                     aria-label="Tegenstander"
                 >
-                    <h2 class="text-center text-sm font-medium">
+                    <h2 class="text-center text-xs sm:text-sm font-bold uppercase tracking-wider text-blue-300">
                         {{ opponent ?? 'Tegenstander' }}
                     </h2>
                     <Board :rows="opponentRows" size="sm" />
                 </section>
 
                 <section
-                    class="order-1 space-y-2 md:order-2"
+                    class="order-1 flex flex-col items-center gap-2 rounded-2xl border-2 border-blue-400/40 bg-[#071948]/80 p-3 sm:p-5 shadow-2xl backdrop-blur-sm md:order-2"
                     aria-label="Jouw bord"
                 >
-                    <h2 class="text-center text-sm font-medium">
+                    <h2 class="text-center text-xs sm:text-sm font-black uppercase tracking-wider text-yellow-400">
                         {{ me }} (jij)
                     </h2>
-                    <Board :rows="rows" :current="current" />
+                    <Board :rows="rows" :current="current" :shake="shakeActiveRow" />
                 </section>
             </div>
 
-            <p v-if="message" role="alert" class="text-sm text-red-600">
-                {{ message }}
+            <p
+                v-if="solvedPoints !== null && !finished"
+                class="rounded-xl border border-emerald-400/50 bg-emerald-950/80 px-4 py-2 text-center text-xs sm:text-sm font-bold text-emerald-300 shadow-lg"
+            >
+                🎉 Opgelost! +{{ solvedPoints }} punten. Wachten op de tegenstander…
             </p>
             <p
-                v-else-if="solvedPoints !== null && !finished"
-                class="text-sm font-medium text-green-700"
+                v-else-if="outOfGuesses"
+                class="rounded-xl border border-blue-500/40 bg-[#061439]/80 px-4 py-2 text-center text-xs sm:text-sm font-medium text-blue-200"
             >
-                Opgelost! +{{ solvedPoints }} punten. Wachten op de
-                tegenstander…
-            </p>
-            <p v-else-if="outOfGuesses" class="text-sm text-[#706f6c]">
                 Geen pogingen meer. Wachten op de tegenstander…
             </p>
 
-            <div v-if="finished && result" class="space-y-3 text-center">
-                <p class="text-lg font-semibold">
+            <div
+                v-if="finished && result"
+                class="w-full max-w-md space-y-3.5 rounded-2xl border-2 border-yellow-400/50 bg-[#081a4d]/95 p-5 text-center shadow-2xl backdrop-blur-md"
+            >
+                <p class="text-xl sm:text-2xl font-black text-yellow-400 drop-shadow-sm">
                     {{
                         result.winner
-                            ? `${result.winner} was het snelst!`
+                            ? `🏆 ${result.winner} was het snelst!`
                             : 'Niemand heeft het woord geraden.'
                     }}
                 </p>
-                <p>
-                    Het woord was
-                    <span class="font-bold uppercase">{{ result.word }}</span>
+                <p class="flex flex-wrap items-center justify-center gap-2 text-sm font-medium text-blue-100">
+                    <span>Het woord was:</span>
+                    <span
+                        class="inline-block rounded-none border-2 border-red-500 bg-red-600 px-3 py-1 font-mono text-lg sm:text-xl font-black uppercase tracking-widest text-white shadow-md"
+                    >
+                        {{ result.word }}
+                    </span>
                 </p>
-                <p class="text-sm">
-                    <template
+                <div class="flex flex-wrap items-center justify-center gap-2 text-xs sm:text-sm text-blue-200">
+                    <span
                         v-for="(points, name) in result.points"
                         :key="name"
+                        class="rounded-lg border border-blue-500/30 bg-[#061439]/80 px-2.5 py-1 font-semibold"
                     >
-                        <span class="mr-3">{{ name }}: +{{ points }}</span>
-                    </template>
-                </p>
+                        {{ name }}: <strong class="text-yellow-400">+{{ points }}</strong>
+                    </span>
+                </div>
                 <button
                     type="button"
                     :disabled="callHttp.processing"
-                    class="rounded-lg bg-[#1b1b18] px-5 py-2 font-medium text-white disabled:opacity-50 dark:bg-[#eeeeec] dark:text-[#1C1C1A]"
+                    class="w-full rounded-xl bg-gradient-to-b from-yellow-300 to-amber-500 px-6 py-2.5 text-sm sm:text-base font-black text-blue-950 shadow-lg shadow-yellow-500/25 transition-all hover:from-yellow-200 hover:to-amber-400 active:scale-[0.98] disabled:opacity-40 cursor-pointer"
                     @click="nextRound"
                 >
                     Volgende ronde
@@ -412,18 +481,19 @@ const outOfGuesses = computed(
             />
         </div>
 
-        <ul class="flex gap-4 text-xs text-[#706f6c]">
-            <li class="flex items-center gap-1">
-                <span class="inline-block size-3 bg-green-600" /> Juiste plek
+        <ul class="flex flex-wrap justify-center gap-4 text-xs font-semibold text-blue-200">
+            <li class="flex items-center gap-1.5">
+                <span class="inline-block size-3.5 bg-red-600 border border-red-500 shadow-sm" /> Juiste plek
             </li>
-            <li class="flex items-center gap-1">
-                <span class="inline-block size-3 rounded-full bg-amber-500" />
+            <li class="flex items-center gap-1.5">
+                <span class="inline-block size-3.5 rounded-full bg-yellow-400 border border-yellow-300 shadow-sm" />
                 Verkeerde plek
             </li>
-            <li class="flex items-center gap-1">
-                <span class="inline-block size-3 rounded-md bg-neutral-500" />
+            <li class="flex items-center gap-1.5">
+                <span class="inline-block size-3.5 rounded-md bg-[#081b49] border border-blue-900" />
                 Komt niet voor
             </li>
         </ul>
     </div>
 </template>
+

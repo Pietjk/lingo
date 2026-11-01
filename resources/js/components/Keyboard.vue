@@ -12,26 +12,30 @@ const emit = defineEmits<{
 
 const rows = ['qwertyuiop', 'asdfghjkl', 'zxcvbnm'];
 
-// Same shapes as the tiles: square = juiste plek, circle = verkeerde plek.
+// Classic Lingo: red square = juiste plek, yellow circle = verkeerde plek.
 const keyClasses: Record<LetterStatus, string> = {
-    correct: 'bg-green-600 text-white rounded-none',
-    present: 'bg-amber-500 text-white rounded-full',
-    absent: 'bg-neutral-500 text-white rounded-md',
+    correct:
+        'bg-red-600 hover:bg-red-500 border-2 border-red-400 text-white rounded-none shadow-md shadow-red-950/40',
+    present:
+        'bg-yellow-400 hover:bg-yellow-300 border-2 border-yellow-200 text-blue-950 font-black rounded-full shadow-md shadow-yellow-950/40',
+    absent:
+        'bg-[#051336]/90 border border-blue-900/60 text-blue-400/30 rounded-md',
 };
 </script>
 
 <template>
-    <div class="grid gap-1.5">
+    <div class="w-full max-w-lg mx-auto grid gap-1.5 select-none px-0.5 sm:px-2">
         <div
             v-for="(row, i) in rows"
             :key="row"
-            class="flex justify-center gap-1"
+            class="flex w-full justify-center gap-1 sm:gap-1.5 touch-manipulation"
+            :class="{ 'px-2 sm:px-4': i === 1 }"
         >
             <button
                 v-if="i === 2"
                 type="button"
                 :disabled="disabled"
-                class="rounded-md bg-neutral-200 px-3 text-xs font-semibold dark:bg-neutral-800"
+                class="flex-[1.4] h-10 sm:h-12 max-w-16 min-w-0 rounded-md border border-blue-400/50 bg-[#183780] hover:bg-[#234dae] text-white text-xs sm:text-sm font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all disabled:opacity-40 disabled:pointer-events-none cursor-pointer"
                 @click="emit('key', 'Enter')"
             >
                 Enter
@@ -41,11 +45,11 @@ const keyClasses: Record<LetterStatus, string> = {
                 :key="letter"
                 type="button"
                 :disabled="disabled"
-                class="h-12 w-8 text-sm font-semibold uppercase sm:w-10"
+                class="flex-1 h-10 sm:h-12 max-w-10 min-w-0 text-xs sm:text-base font-bold uppercase flex items-center justify-center transition-all active:scale-95 disabled:opacity-40 disabled:pointer-events-none cursor-pointer"
                 :class="
                     letterStatuses[letter]
                         ? keyClasses[letterStatuses[letter]]
-                        : 'rounded-md bg-neutral-200 dark:bg-neutral-800'
+                        : 'rounded-md border border-blue-500/40 bg-[#102b6e] hover:bg-[#183d99] text-white shadow-sm active:bg-[#1e49b3]'
                 "
                 @click="emit('key', letter)"
             >
@@ -56,7 +60,7 @@ const keyClasses: Record<LetterStatus, string> = {
                 type="button"
                 :disabled="disabled"
                 aria-label="Wissen"
-                class="rounded-md bg-neutral-200 px-3 text-xs font-semibold dark:bg-neutral-800"
+                class="flex-[1.4] h-10 sm:h-12 max-w-16 min-w-0 rounded-md border border-blue-400/50 bg-[#183780] hover:bg-[#234dae] text-white text-sm sm:text-base font-bold flex items-center justify-center shadow-sm active:scale-95 transition-all disabled:opacity-40 disabled:pointer-events-none cursor-pointer"
                 @click="emit('key', 'Backspace')"
             >
                 ⌫
@@ -64,3 +68,4 @@ const keyClasses: Record<LetterStatus, string> = {
         </div>
     </div>
 </template>
+
