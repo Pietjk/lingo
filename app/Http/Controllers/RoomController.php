@@ -7,12 +7,14 @@ use App\Game\LetterStatus;
 use App\Game\RoomFullException;
 use App\Game\RoomManager;
 use App\Game\RoomStatus;
+use App\Game\RoundScorer;
 use App\Game\WordList;
 use App\Http\Requests\GuessRequest;
 use App\Http\Requests\JoinRoomRequest;
 use App\Http\Requests\StoreRoomRequest;
 use App\Models\Room;
 use App\Models\RoomPlayer;
+use DomainException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -73,7 +75,11 @@ class RoomController extends Controller
             'me' => $player->nickname,
             'opponent' => $opponent,
             'round' => $room->round,
-            'finished' => $room->status === RoomStatus::Finished,
+            'finished' => in_array($room->status, [RoomStatus::Finished, RoomStatus::MatchFinished], true),
+            'matchOver' => $room->status === RoomStatus::MatchFinished,
+            'totalRounds' => RoundScorer::TOTAL_ROUNDS,
+            'scores' => $this->rooms->scoreboard($room),
+            'secondsLeft' => $this->rooms->secondsLeft($room),
         ]);
     }
 
@@ -81,7 +87,11 @@ class RoomController extends Controller
     {
         abort_if($this->currentPlayer($request, $room) === null, 403);
 
-        if ($room->status === RoomStatus::Playing || $room->players()->count() < RoomManager::MAX_PLAYERS) {
+        if (
+            $room->status === RoomStatus::Playing
+            || $room->status === RoomStatus::MatchFinished
+            || $room->players()->count() < RoomManager::MAX_PLAYERS
+        ) {
             throw ValidationException::withMessages(['room' => 'Er zijn twee spelers nodig om te starten.']);
         }
 
@@ -103,11 +113,73 @@ class RoomController extends Controller
             throw ValidationException::withMessages(['guess' => 'Dit woord staat niet in de woordenlijst.']);
         }
 
-        $statuses = $this->rooms->guess($room, $player, $request->validated('guess'));
+        try {
+            $statuses = $this->rooms->guess($room, $player, $request->validated('guess'));
+        } catch (DomainException $e) {
+            throw ValidationException::withMessages(['guess' => $e->getMessage()]);
+        }
+
+        $player->refresh();
 
         return response()->json([
             'statuses' => array_map(fn (LetterStatus $status): string => $status->value, $statuses),
+            'solved' => $player->solve_rank !== null,
+            'points' => $player->round_points,
         ]);
+    }
+
+    public function rematch(Request $request, Room $room): JsonResponse
+    {
+        abort_if($this->currentPlayer($request, $room) === null, 403);
+
+        try {
+            $this->rooms->rematch($room);
+        } catch (DomainException $e) {
+            throw ValidationException::withMessages(['room' => $e->getMessage()]);
+        }
+
+        return response()->json(['round' => $room->round]);
+    }
+
+    public function expire(Request $request, Room $room): JsonResponse
+    {
+        abort_if($this->currentPlayer($request, $room) === null, 403);
+
+        return response()->json(['expired' => $this->rooms->expireRound($room)]);
+    }
+
+    public function opponentLeft(Request $request, Room $room): JsonResponse
+    {
+        abort_if($this->currentPlayer($request, $room) === null, 403);
+
+        if (! in_array($room->status, [RoomStatus::Playing, RoomStatus::Finished], true)) {
+            throw ValidationException::withMessages(['room' => 'Er is geen wedstrijd bezig.']);
+        }
+
+        return response()->json(['seconds' => $this->rooms->markOpponentLeft($room)]);
+    }
+
+    public function opponentReturned(Request $request, Room $room): JsonResponse
+    {
+        abort_if($this->currentPlayer($request, $room) === null, 403);
+
+        $this->rooms->markOpponentReturned($room);
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function forfeit(Request $request, Room $room): JsonResponse
+    {
+        $player = $this->currentPlayer($request, $room);
+        abort_if($player === null, 403);
+
+        try {
+            $this->rooms->forfeit($room, $player);
+        } catch (DomainException $e) {
+            throw ValidationException::withMessages(['room' => $e->getMessage()]);
+        }
+
+        return response()->json(['ok' => true]);
     }
 
     private function currentPlayer(Request $request, Room $room): ?RoomPlayer

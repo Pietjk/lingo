@@ -13,10 +13,22 @@ class RoomPlayer extends Model
     use HasFactory;
 
     /** @var list<string> */
-    protected $fillable = ['room_id', 'guest_id', 'nickname'];
+    protected $fillable = ['room_id', 'guest_id', 'nickname', 'attempts', 'solve_rank', 'round_points'];
 
     /** @var list<string> */
     protected $hidden = ['guest_id'];
+
+    /**
+     * @return array<string, string>
+     */
+    protected function casts(): array
+    {
+        return [
+            'attempts' => 'integer',
+            'solve_rank' => 'integer',
+            'round_points' => 'integer',
+        ];
+    }
 
     /**
      * @return BelongsTo<Room, $this>

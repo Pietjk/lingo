@@ -14,7 +14,7 @@ class Room extends Model
     use HasFactory;
 
     /** @var list<string> */
-    protected $fillable = ['code', 'status', 'word', 'round', 'scores'];
+    protected $fillable = ['code', 'status', 'word', 'round', 'scores', 'round_ends_at', 'opponent_left_at'];
 
     /** @var list<string> */
     protected $hidden = ['word'];
@@ -28,6 +28,8 @@ class Room extends Model
             'status' => RoomStatus::class,
             'round' => 'integer',
             'scores' => 'array',
+            'round_ends_at' => 'datetime',
+            'opponent_left_at' => 'datetime',
         ];
     }
 

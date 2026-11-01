@@ -80,5 +80,5 @@ it('reveals the word only in RoundFinished', function () {
 
     $manager->guess($room, $ann, 'crane');
 
-    Event::assertDispatched(RoundFinished::class, fn (RoundFinished $event) => $event->broadcastWith() === ['word' => 'crane', 'winner' => 'Ann']);
+    Event::assertDispatched(RoundFinished::class, fn (RoundFinished $event) => $event->broadcastWith()['word'] === 'crane' && $event->broadcastWith()['winner'] === 'Ann');
 });
