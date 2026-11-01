@@ -2,6 +2,10 @@
 
 namespace App\Game;
 
+use App\Events\OpponentGuessed;
+use App\Events\PlayerJoined;
+use App\Events\RoundFinished;
+use App\Events\RoundStarted;
 use App\Models\Room;
 use App\Models\RoomPlayer;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -12,6 +16,11 @@ class RoomManager
     public const MAX_PLAYERS = 2;
 
     public const CODE_LENGTH = 4;
+
+    public function __construct(
+        private readonly WordList $words,
+        private readonly GuessEvaluator $evaluator,
+    ) {}
 
     public function create(): Room
     {
@@ -48,11 +57,63 @@ class RoomManager
                 throw new RoomFullException('This room is full.');
             }
 
-            return $room->players()->create([
+            $player = $room->players()->create([
                 'guest_id' => $guestId,
                 'nickname' => $nickname,
             ]);
+
+            PlayerJoined::dispatch($room->code, $player->nickname);
+
+            return $player;
         });
+    }
+
+    public function startRound(Room $room, ?string $word = null): Room
+    {
+        $room->update([
+            'status' => RoomStatus::Playing,
+            'word' => $word ?? $this->words->randomSolution(),
+            'round' => $room->round + 1,
+        ]);
+
+        RoundStarted::dispatch($room->code, $room->round);
+
+        return $room;
+    }
+
+    /**
+     * Evaluates a guess and broadcasts only the letter states to the room.
+     *
+     * @return list<LetterStatus>
+     */
+    public function guess(Room $room, RoomPlayer $player, string $guess): array
+    {
+        $statuses = $this->evaluator->evaluate($guess, (string) $room->word);
+
+        OpponentGuessed::dispatch($room->code, $player->nickname, $statuses);
+
+        if (collect($statuses)->every(fn (LetterStatus $status) => $status === LetterStatus::Correct)) {
+            $this->finishRound($room, $player);
+        }
+
+        return $statuses;
+    }
+
+    public function finishRound(Room $room, ?RoomPlayer $winner = null): Room
+    {
+        $scores = $room->scores;
+
+        if ($winner !== null) {
+            $scores[$winner->id] = ($scores[$winner->id] ?? 0) + 1;
+        }
+
+        $word = (string) $room->word;
+
+        $room->update(['status' => RoomStatus::Finished, 'scores' => $scores]);
+
+        RoundFinished::dispatch($room->code, $word, $winner?->nickname);
+
+        return $room;
     }
 
     private function generateCode(): string
