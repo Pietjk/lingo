@@ -36,24 +36,40 @@ it('awards 10 points, 2 per remaining row and 5 for solving first', function () 
     expect(scoreOf($room, $ann))->toBe(10 + 3 * 2 + 5);
 });
 
-it('gives the second solver no first bonus and keeps the round open until both are done', function () {
+it('ends the round immediately when one player solves it and reveals the word', function () {
     Event::fake([RoundFinished::class]);
     [$room, $manager, $ann, $bob] = matchWithTwoPlayers();
 
-    $manager->guess($room, $ann, 'crane');
-    expect($room->refresh()->status)->toBe(RoomStatus::Playing);
-    Event::assertNotDispatched(RoundFinished::class);
-
     $manager->guess($room, $bob, 'slate');
-    $manager->guess($room, $bob, 'trace');
-    $manager->guess($room, $bob, 'crane');
+    $manager->guess($room->refresh(), $ann, 'crane');
 
-    expect(scoreOf($room, $ann))->toBe(10 + 4 * 2 + 5)
-        ->and(scoreOf($room, $bob))->toBe(10 + 2 * 2)
-        ->and($room->refresh()->status)->toBe(RoomStatus::Finished);
+    expect($room->refresh()->status)->toBe(RoomStatus::Finished)
+        ->and(scoreOf($room, $ann))->toBe(10 + 4 * 2 + 5)
+        ->and(scoreOf($room, $bob))->toBe(0);
 
-    Event::assertDispatched(RoundFinished::class, fn (RoundFinished $event) => $event->broadcastWith()['winner'] === 'Ann'
-        && $event->broadcastWith()['scores'] === ['Ann' => 23, 'Bob' => 14]);
+    Event::assertDispatched(RoundFinished::class, fn (RoundFinished $event) => $event->broadcastWith()['word'] === 'crane'
+        && $event->broadcastWith()['winner'] === 'Ann'
+        && $event->broadcastWith()['scores'] === ['Ann' => 23, 'Bob' => 0]);
+
+    expect(fn () => $manager->guess($room->refresh(), $bob, 'crane'))->toThrow(DomainException::class);
+});
+
+it('does not offer a rematch after a forfeit', function () {
+    [$room] = matchWithTwoPlayers();
+    $asAnn = fn () => $this->withSession(['guest_id' => 'guest-1']);
+
+    $asAnn()->postJson(route('rooms.opponent-left', 'ABCD'))->assertOk();
+    $this->travel(31)->seconds();
+    $asAnn()->postJson(route('rooms.forfeit', 'ABCD'))->assertOk();
+
+    $asAnn()->get(route('rooms.show', 'ABCD'))
+        ->assertInertia(fn (Assert $page) => $page->where('matchOver', true)->where('opponentForfeited', true));
+
+    $asAnn()->postJson(route('rooms.rematch', 'ABCD'))->assertUnprocessable();
+    $asAnn()->postJson(route('rooms.opponent-returned', 'ABCD'))->assertOk();
+    $asAnn()->postJson(route('rooms.rematch', 'ABCD'))->assertUnprocessable();
+
+    expect($room->refresh()->status)->toBe(RoomStatus::MatchFinished);
 });
 
 it('finishes the round without points when both run out of guesses', function () {
@@ -109,8 +125,6 @@ it('ends the match after three rounds and declares the leader the winner', funct
     foreach ([1, 2, 3] as $round) {
         expect($room->refresh()->round)->toBe($round);
         $manager->guess($room, $ann, 'crane');
-        $manager->guess($room->refresh(), $bob, 'slate');
-        $manager->finishRound($room->refresh());
 
         if ($round < 3) {
             expect($room->refresh()->status)->toBe(RoomStatus::Finished);

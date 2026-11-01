@@ -42,6 +42,7 @@ const props = defineProps<{
     round: number;
     finished: boolean;
     matchOver: boolean;
+    opponentForfeited: boolean;
     totalRounds: number;
     scores: Record<string, number>;
     secondsLeft: number;
@@ -55,6 +56,9 @@ const result = ref<RoundResult | null>(null);
 const message = ref<string | null>(null);
 const scores = ref<Record<string, number>>({ ...props.scores });
 const matchOver = ref(props.matchOver);
+const forfeited = computed(
+    () => props.opponentForfeited || result.value?.reason === 'forfeit',
+);
 const solvedPoints = ref<number | null>(null);
 
 const roundTimer = useCountdown();
@@ -327,7 +331,7 @@ const outOfGuesses = computed(
             :me="me"
             :scores="scores"
             :winner="matchWinner"
-            :forfeit="result?.reason === 'forfeit'"
+            :forfeit="forfeited"
             :processing="callHttp.processing"
             @rematch="playAgain"
         />

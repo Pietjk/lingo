@@ -49,7 +49,11 @@ const headline = computed(() => {
             </li>
         </ol>
 
+        <p v-if="forfeit" class="text-sm text-[#706f6c]">
+            De tegenstander heeft de kamer verlaten, opnieuw spelen kan niet.
+        </p>
         <button
+            v-else
             type="button"
             :disabled="processing"
             class="rounded-lg bg-[#1b1b18] px-5 py-2 font-medium text-white disabled:opacity-50 dark:bg-[#eeeeec] dark:text-[#1C1C1A]"

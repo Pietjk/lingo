@@ -5,6 +5,7 @@ use App\Events\PlayerJoined;
 use App\Events\RoundFinished;
 use App\Events\RoundStarted;
 use App\Game\RoomManager;
+use App\Game\RoomStatus;
 use App\Models\Room;
 use App\Models\RoomPlayer;
 use Illuminate\Broadcasting\PresenceChannel;
@@ -55,7 +56,7 @@ it('never exposes the word before the round ends', function () {
 it('broadcasts only letter states for a guess', function () {
     Event::fake();
 
-    $room = Room::factory()->create(['code' => 'ABCD', 'word' => 'crane']);
+    $room = Room::factory()->create(['code' => 'ABCD', 'word' => 'crane', 'status' => RoomStatus::Playing]);
     $player = RoomPlayer::factory()->create(['room_id' => $room->id]);
 
     app(RoomManager::class)->guess($room, $player, 'slate');

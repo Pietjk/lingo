@@ -95,6 +95,10 @@ class RoomManager
             throw new DomainException('De wedstrijd is nog bezig.');
         }
 
+        if ($this->opponentForfeited($room)) {
+            throw new DomainException('De tegenstander heeft de kamer verlaten.');
+        }
+
         $room->update(['round' => 0, 'scores' => []]);
 
         return $this->startRound($room);
@@ -148,7 +152,16 @@ class RoomManager
 
     public function markOpponentReturned(Room $room): void
     {
+        if ($room->status === RoomStatus::MatchFinished) {
+            return;
+        }
+
         $room->update(['opponent_left_at' => null]);
+    }
+
+    public function opponentForfeited(Room $room): bool
+    {
+        return $room->status === RoomStatus::MatchFinished && $room->opponent_left_at !== null;
     }
 
     /**
@@ -184,6 +197,10 @@ class RoomManager
             $room = Room::query()->lockForUpdate()->findOrFail($room->id);
             $player = $room->players()->findOrFail($player->id);
 
+            if ($room->status !== RoomStatus::Playing) {
+                throw new DomainException('Er is geen ronde bezig.');
+            }
+
             if ($player->attempts >= RoundScorer::MAX_GUESSES || $player->solve_rank !== null) {
                 throw new DomainException('Je kunt in deze ronde niet meer raden.');
             }
@@ -191,7 +208,9 @@ class RoomManager
             $statuses = $this->evaluator->evaluate($guess, (string) $room->word);
             $player->attempts++;
 
-            if (collect($statuses)->every(fn (LetterStatus $status) => $status === LetterStatus::Correct)) {
+            $solved = collect($statuses)->every(fn (LetterStatus $status) => $status === LetterStatus::Correct);
+
+            if ($solved) {
                 $this->recordSolve($room, $player);
             }
 
@@ -199,7 +218,7 @@ class RoomManager
 
             OpponentGuessed::dispatch($room->code, $player->nickname, $statuses);
 
-            if ($this->everyoneIsDone($room)) {
+            if ($solved || $this->everyoneIsDone($room)) {
                 $this->finishRound($room);
             }
 

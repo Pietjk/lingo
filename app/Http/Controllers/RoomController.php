@@ -77,6 +77,7 @@ class RoomController extends Controller
             'round' => $room->round,
             'finished' => in_array($room->status, [RoomStatus::Finished, RoomStatus::MatchFinished], true),
             'matchOver' => $room->status === RoomStatus::MatchFinished,
+            'opponentForfeited' => $this->rooms->opponentForfeited($room),
             'totalRounds' => RoundScorer::TOTAL_ROUNDS,
             'scores' => $this->rooms->scoreboard($room),
             'secondsLeft' => $this->rooms->secondsLeft($room),
