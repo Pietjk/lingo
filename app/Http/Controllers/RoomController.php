@@ -169,6 +169,16 @@ class RoomController extends Controller
         return response()->json(['ok' => true]);
     }
 
+    public function heartbeat(Request $request, Room $room): JsonResponse
+    {
+        $player = $this->currentPlayer($request, $room);
+        abort_if($player === null, 403);
+
+        $this->rooms->heartbeat($room, $player);
+
+        return response()->json(['ok' => true]);
+    }
+
     public function forfeit(Request $request, Room $room): JsonResponse
     {
         $player = $this->currentPlayer($request, $room);

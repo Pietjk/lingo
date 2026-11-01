@@ -14,4 +14,7 @@ Route::post('/rooms/{room:code}/rematch', [RoomController::class, 'rematch'])->n
 Route::post('/rooms/{room:code}/expire', [RoomController::class, 'expire'])->name('rooms.expire');
 Route::post('/rooms/{room:code}/opponent-left', [RoomController::class, 'opponentLeft'])->name('rooms.opponent-left');
 Route::post('/rooms/{room:code}/opponent-returned', [RoomController::class, 'opponentReturned'])->name('rooms.opponent-returned');
+Route::post('/rooms/{room:code}/heartbeat', [RoomController::class, 'heartbeat'])
+    ->middleware('throttle:30,1')
+    ->name('rooms.heartbeat');
 Route::post('/rooms/{room:code}/forfeit', [RoomController::class, 'forfeit'])->name('rooms.forfeit');

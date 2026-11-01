@@ -162,6 +162,14 @@ it('only allows a rematch once the match is over', function () {
         ->assertUnprocessable();
 });
 
+it('rejects heartbeats from non-members', function () {
+    Room::factory()->create(['code' => 'ABCD']);
+
+    $this->withSession(['guest_id' => 'outsider'])
+        ->postJson(route('rooms.heartbeat', 'ABCD'))
+        ->assertForbidden();
+});
+
 it('lets the remaining player win by forfeit after 30 seconds', function () {
     Event::fake([RoundFinished::class]);
     [$room] = matchWithTwoPlayers();
@@ -183,14 +191,38 @@ it('lets the remaining player win by forfeit after 30 seconds', function () {
         && $event->broadcastWith()['matchOver'] === true);
 });
 
+it('does not allow a player to forfeit while the opponent is active', function () {
+    [$room] = matchWithTwoPlayers('water');
+    $asAnn = fn () => $this->withSession(['guest_id' => 'guest-1']);
+    $asBob = fn () => $this->withSession(['guest_id' => 'guest-2']);
+
+    $asBob()->postJson(route('rooms.heartbeat', 'ABCD'))->assertOk();
+    $asAnn()->postJson(route('rooms.opponent-left', 'ABCD'))->assertOk();
+
+    $this->travel(31)->seconds();
+    $asBob()->postJson(route('rooms.heartbeat', 'ABCD'))->assertOk();
+
+    $asAnn()->postJson(route('rooms.forfeit', 'ABCD'))->assertUnprocessable();
+
+    expect($room->refresh()->status)->toBe(RoomStatus::Playing);
+
+    $asAnn()->postJson(route('rooms.guess', 'ABCD'), ['guess' => 'water'])->assertOk();
+
+    expect($room->refresh()->status)->toBe(RoomStatus::Finished)
+        ->and($room->opponent_left_at)->toBeNull();
+});
+
 it('cancels the forfeit countdown when the opponent returns', function () {
     matchWithTwoPlayers();
     $asAnn = fn () => $this->withSession(['guest_id' => 'guest-1']);
+    $asBob = fn () => $this->withSession(['guest_id' => 'guest-2']);
 
     $asAnn()->postJson(route('rooms.opponent-left', 'ABCD'))->assertOk();
     $asAnn()->postJson(route('rooms.opponent-returned', 'ABCD'))->assertOk();
+    $asBob()->postJson(route('rooms.heartbeat', 'ABCD'))->assertOk();
 
     $this->travel(60)->seconds();
+    $asBob()->postJson(route('rooms.heartbeat', 'ABCD'))->assertOk();
     $asAnn()->postJson(route('rooms.forfeit', 'ABCD'))->assertUnprocessable();
 });
 

@@ -12,6 +12,7 @@ import {
     expire,
     forfeit,
     guess,
+    heartbeat,
     opponentLeft,
     opponentReturned,
     rematch,
@@ -58,6 +59,7 @@ const message = ref<string | null>(null);
 const toastMessage = ref<string | null>(null);
 const shakeActiveRow = ref(false);
 let shakeTimeout: ReturnType<typeof setTimeout> | null = null;
+let heartbeatInterval: number | null = null;
 const scores = ref<Record<string, number>>({ ...props.scores });
 const matchOver = ref(props.matchOver);
 const forfeited = computed(
@@ -196,6 +198,9 @@ onUnmounted(() => {
     if (shakeTimeout) {
         clearTimeout(shakeTimeout);
     }
+    if (heartbeatInterval !== null) {
+        window.clearInterval(heartbeatInterval);
+    }
 });
 
 useEchoPresence(
@@ -282,6 +287,15 @@ function opponentBack() {
 const presence = useEchoPresence(`room.${props.code}`);
 
 onMounted(() => {
+    const sendHeartbeat = () => {
+        if (!matchOver.value) {
+            void callHttp.post(heartbeat.url(props.code));
+        }
+    };
+
+    sendHeartbeat();
+    heartbeatInterval = window.setInterval(sendHeartbeat, 10_000);
+
     if (!finished.value && props.secondsLeft > 0) {
         roundTimer.start(props.secondsLeft, expireRound);
     }
@@ -496,4 +510,3 @@ const outOfGuesses = computed(
         </ul>
     </div>
 </template>
-

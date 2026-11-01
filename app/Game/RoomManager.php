@@ -71,7 +71,12 @@ class RoomManager
 
     public function startRound(Room $room, ?string $word = null): Room
     {
-        $room->players()->update(['attempts' => 0, 'solve_rank' => null, 'round_points' => 0]);
+        $room->players()->update([
+            'attempts' => 0,
+            'solve_rank' => null,
+            'round_points' => 0,
+            'last_seen_at' => now(),
+        ]);
 
         $room->update([
             'status' => RoomStatus::Playing,
@@ -143,20 +148,26 @@ class RoomManager
 
     public function markOpponentLeft(Room $room): int
     {
-        if ($room->opponent_left_at === null) {
-            $room->update(['opponent_left_at' => now()]);
-        }
+        DB::transaction(function () use ($room): void {
+            $room = Room::query()->lockForUpdate()->findOrFail($room->id);
+
+            if ($room->opponent_left_at === null) {
+                $room->update(['opponent_left_at' => now()]);
+            }
+        });
 
         return RoundScorer::FORFEIT_SECONDS;
     }
 
     public function markOpponentReturned(Room $room): void
     {
-        if ($room->status === RoomStatus::MatchFinished) {
-            return;
-        }
+        DB::transaction(function () use ($room): void {
+            $room = Room::query()->lockForUpdate()->findOrFail($room->id);
 
-        $room->update(['opponent_left_at' => null]);
+            if ($room->status !== RoomStatus::MatchFinished) {
+                $room->update(['opponent_left_at' => null]);
+            }
+        });
     }
 
     public function opponentForfeited(Room $room): bool
@@ -169,15 +180,39 @@ class RoomManager
      */
     public function forfeit(Room $room, RoomPlayer $remaining): Room
     {
-        $left = $room->opponent_left_at;
+        $remainingId = $remaining->id;
 
-        if (! in_array($room->status, [RoomStatus::Playing, RoomStatus::Finished], true)
-            || $left === null
-            || $left->copy()->addSeconds(RoundScorer::FORFEIT_SECONDS)->isFuture()) {
-            throw new DomainException('De tegenstander kan nog terugkomen.');
-        }
+        return DB::transaction(function () use ($room, $remainingId): Room {
+            $room = Room::query()->lockForUpdate()->findOrFail($room->id);
 
-        return $this->finishRound($room, 'forfeit', $remaining);
+            if (! in_array($room->status, [RoomStatus::Playing, RoomStatus::Finished], true)) {
+                throw new DomainException('De tegenstander kan nog terugkomen.');
+            }
+
+            $remaining = $room->players()->lockForUpdate()->findOrFail($remainingId);
+            $opponent = $room->players()
+                ->where('id', '!=', $remaining->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ($opponent->last_seen_at === null
+                || $opponent->last_seen_at->addSeconds(RoundScorer::FORFEIT_SECONDS)->isFuture()) {
+                throw new DomainException('De tegenstander is nog actief.');
+            }
+
+            $room->update(['opponent_left_at' => $room->opponent_left_at ?? now()]);
+
+            return $this->finishRound($room, 'forfeit', $remaining);
+        });
+    }
+
+    public function heartbeat(Room $room, RoomPlayer $player): void
+    {
+        DB::transaction(function () use ($room, $player): void {
+            $room = Room::query()->lockForUpdate()->findOrFail($room->id);
+            $player = $room->players()->lockForUpdate()->findOrFail($player->id);
+            $player->update(['last_seen_at' => now()]);
+        });
     }
 
     /**
@@ -241,6 +276,7 @@ class RoomManager
         $room->update([
             'status' => $matchOver ? RoomStatus::MatchFinished : RoomStatus::Finished,
             'round_ends_at' => null,
+            'opponent_left_at' => $reason === 'forfeit' ? ($room->opponent_left_at ?? now()) : null,
         ]);
 
         RoundFinished::dispatch(

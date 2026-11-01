@@ -21,6 +21,39 @@ it('broadcasts on the room presence channel', function () {
         ->and($channel->name)->toBe('presence-room.ABCD');
 });
 
+it('authorizes only room members for the presence channel', function () {
+    $room = Room::factory()->create(['code' => 'ABCD']);
+    config([
+        'broadcasting.default' => 'pusher',
+        'broadcasting.connections.pusher.app_id' => 'test-app',
+        'broadcasting.connections.pusher.key' => 'test_key_123',
+        'broadcasting.connections.pusher.secret' => 'test-secret',
+    ]);
+    require base_path('routes/channels.php');
+
+    $payload = ['socket_id' => '123.456', 'channel_name' => 'presence-room.ABCD'];
+
+    $this->withSession(['guest_id' => 'outsider'])
+        ->postJson('/broadcasting/auth', $payload)
+        ->assertForbidden();
+
+    RoomPlayer::factory()->create([
+        'room_id' => $room->id,
+        'guest_id' => 'guest-1',
+        'nickname' => 'Ann',
+    ]);
+
+    $this->withSession(['guest_id' => 'guest-1'])
+        ->postJson('/broadcasting/auth', $payload)
+        ->assertOk();
+});
+
+it('hides the secret word from model serialization', function () {
+    $room = Room::factory()->create(['word' => 'crane', 'status' => RoomStatus::Playing]);
+
+    expect($room->toArray())->not->toHaveKey('word');
+});
+
 it('never exposes the word before the round ends', function () {
     Event::fake();
 
